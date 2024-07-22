@@ -77,3 +77,25 @@ df
 
 spark_df = spark.createDataFrame(df)
 display(spark_df)
+
+# COMMAND ----------
+
+server_name = "jdbc:sqlserver://training-ss.database.windows.net"
+database_name = "training-db"
+url = server_name + ";" + "databaseName=" + database_name + ";"
+
+table_name = "mytable"
+username = "matthew.perkins@stormid.com"
+password = "Casio3298!?" # Please specify password here
+
+try:
+  spark_df.write \
+    .format("com.microsoft.sqlserver.jdbc.spark") \
+    .mode("overwrite") \
+    .option("url", url) \
+    .option("dbtable", table_name) \
+    .option("user", username) \
+    .option("password", password) \
+    .save()
+except ValueError as error :
+    print("Connector write failed", error)
