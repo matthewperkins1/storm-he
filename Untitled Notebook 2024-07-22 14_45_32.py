@@ -103,3 +103,8 @@ except ValueError as error :
 # COMMAND ----------
 
 spark_df.createOrReplaceTempView("spark_df_table")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC SELECT * FROM spark_df_table
