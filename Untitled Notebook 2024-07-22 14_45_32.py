@@ -99,3 +99,7 @@ try:
     .save()
 except ValueError as error :
     print("Connector write failed", error)
+
+# COMMAND ----------
+
+spark_df.createOrReplaceTempView("spark_df_table")
