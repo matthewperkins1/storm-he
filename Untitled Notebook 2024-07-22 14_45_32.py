@@ -147,3 +147,10 @@ blob_client.upload_blob(json_records, overwrite=True)
 # COMMAND ----------
 
 print(f'Records saved to Blob Storage: {blob_name}')
+
+# COMMAND ----------
+
+# Establish connection to Elasticsearch
+key = r'cVV4T3JZMEJRZUc0N1BxMV8tSmo6WUhraWs5NnpTUlMxaG9pc2cxR2VWdw=='
+cloud_id = r'Digital-DevTest-01:dWtzb3V0aC5henVyZS5lbGFzdGljLWNsb3VkLmNvbSQ3NDY1NDZjODY0ZjM0OWM4YjQxMzAzYjBhMTIyY2E5YiQ0OWZlYzhjZDFiNTE0YjUyODY1YWEwYTI0NjY4NmMxYw=='
+connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
