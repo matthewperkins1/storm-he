@@ -108,3 +108,18 @@ spark_df.createOrReplaceTempView("spark_df_table")
 
 # MAGIC %sql
 # MAGIC SELECT * FROM spark_df_table
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC CREATE TABLE IF NOT EXISTS stories_test
+# MAGIC USING DELTA
+# MAGIC LOCATION 'abfss://delta@trainingsamp.dfs.core.windows.net/silver'
+# MAGIC AS SELECT * FROM spark_df_table
+
+# COMMAND ----------
+
+# to test when access to ADLS is set up
+spark_df = spark.read.format('json')
+    .option('inferSchema', 'true')
+    .load('PATH')
