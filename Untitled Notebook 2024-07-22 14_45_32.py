@@ -123,3 +123,12 @@ spark_df.createOrReplaceTempView("spark_df_table")
 spark_df = spark.read.format('json')
     .option('inferSchema', 'true')
     .load('PATH')
+
+# COMMAND ----------
+
+# Convert records to JSON string
+json_records = json.dumps(records, indent=4)
+
+# COMMAND ----------
+
+
