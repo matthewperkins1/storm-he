@@ -71,3 +71,9 @@ df['URLAnchorCombined'] = df['_id'] + df['_source.mentions.anchor']
 df.reset_index()
 
 df
+
+# COMMAND ----------
+
+
+spark_df = spark.createDataFrame(df)
+display(spark_df)
