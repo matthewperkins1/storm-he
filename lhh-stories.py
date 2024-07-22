@@ -16,7 +16,7 @@ connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
 
 # COMMAND ----------
 
-def handle(records):
+def handle(index):
     # Flatten JSON 
     def flatten(df):
         json_struct = json.loads(df.to_json(orient="records"))
@@ -40,31 +40,41 @@ def handle(records):
         exploded_df = df
         return exploded_df
     
-    
+
+
+    # Retrieve records from Elasticsearch
+    records = list(helpers.scan(client=connection, index=index, preserve_order=True))
+    print(f'got {len(records)} records from lhh-stories')
+
+
     # Convert list of records into Dataframe
     df = pd.DataFrame(records)
-    
+    return df
+
     df = flatten(df)
+    
     list_of_columns_with_list_dtypes = has_list(df)
     list_length = len(list_of_columns_with_list_dtypes)
     while len(list_of_columns_with_list_dtypes) > 0:
         df = explode(df, list_of_columns_with_list_dtypes)
         df = flatten(df)
         list_of_columns_with_list_dtypes = has_list(df)
-    return df
+    spark_df = spark.createDataFrame(df)
+    return spark_df
 
 # COMMAND ----------
 
-# Retrieve records from Elasticsearch
+
 index = 'lhh-stories'
-records = list(helpers.scan(client=connection, index=index, preserve_order=True))
-print(f'got {len(records)} records from lhh-stories')
+index = 'lhh-area-by-numbers'
+index = 'lhh-areas'
+index = 'lhh-grant-aided-places'
+index = 'lhh-historic-places'
+index = 'lhh-images'
+index = 'lhh-place-names'
 
-# COMMAND ----------
-
-
-
-data = handle(records=records)
+spark_df = handle(index=index)
+display(spark_df)
 
 # df['_source.duration'] = df['_source.duration'].replace([np.inf, -np.inf, np.nan], 0)
 
@@ -74,13 +84,12 @@ data = handle(records=records)
 # df['DurationConverted'] = pd.to_datetime(df["_source.duration"], unit='s').dt.strftime("%H:%M:%S")
 # df['URLAnchorCombined'] = df['_id'] + df['_source.mentions.anchor']
 # df.reset_index()
-data
+
 
 # COMMAND ----------
 
 
-spark_df = spark.createDataFrame(df)
-display(spark_df)
+
 
 # COMMAND ----------
 
