@@ -131,4 +131,19 @@ json_records = json.dumps(records, indent=4)
 
 # COMMAND ----------
 
+# Create Blob Service Client
+blob_service_client = BlobServiceClient.from_connection_string(blob_connection_string)
 
+# COMMAND ----------
+
+# Create Blob Client
+blob_client = blob_service_client.get_blob_client(container=blob_container_name, blob=blob_name)
+
+# COMMAND ----------
+
+# Upload JSON file to Blob Storage
+blob_client.upload_blob(json_records, overwrite=True)
+
+# COMMAND ----------
+
+print(f'Records saved to Blob Storage: {blob_name}')
