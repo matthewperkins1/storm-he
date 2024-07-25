@@ -18,13 +18,15 @@ dbutils.widgets.dropdown("topic", 'lhh-stories', ['lhh-stories', 'lhh-area-by-nu
 # COMMAND ----------
 
 # Mount to ADLS - this mounting method is not suitable for production, Service Principle method must be used.
-account_key = dbutils.secrets.get('databricksscope', 'mount-sas-account-key')
-account_token = dbutils.secrets.get('databricksscope', 'mount-sas-account-token')
-dbutils.fs.mount(
-  source = "wasbs://training@trainingsamp.blob.core.windows.net",
-  mount_point = "/mnt/trainingsamp/training/",
-  extra_configs = {account_key:account_token}
-)
+# account_key = dbutils.secrets.get('databricksscope', 'mount-sas-account-key')
+# account_token = dbutils.secrets.get('databricksscope', 'mount-sas-account-token')
+# dbutils.fs.mount(
+#   source = "wasbs://training@trainingsamp.blob.core.windows.net",
+#   mount_point = "/mnt/trainingsamp/training/",
+#   extra_configs = {account_key:account_token}
+# )
+
+# dbutils.fs.unmount("/mnt/trainingsamp/training/")
 
 # COMMAND ----------
 
@@ -127,7 +129,3 @@ gold_df.write \
     .mode('overwrite') \
     .save(f"/mnt/trainingsamp/training/{topic_name}/gold")
 
-
-# COMMAND ----------
-
-dbutils.fs.unmount("/mnt/trainingsamp/training/")
