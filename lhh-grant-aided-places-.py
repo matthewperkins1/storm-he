@@ -20,7 +20,7 @@ connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
 # COMMAND ----------
 
 # Retrieve records from Elastic search and convert into Dataframe
-topic_name = 'lhh-stories'
+topic_name = 'lhh-grant-aided-places'
 records = helpers.scan(client=connection, index=topic_name, preserve_order=True)
 list_records = list(records)
 raw_spark_df = spark.createDataFrame(list_records)
@@ -79,16 +79,6 @@ def unpack(df):
 df = unpack(pandas_df)
 
 spark_df = spark.createDataFrame(df)
-
-spark_df = spark_df.withColumn('_source.duration', 
-                               F.when(F.col('`_source.duration`').isin([float('inf'), float('-inf'), None]), 0)
-                               .otherwise(F.col('`_source.duration`')))
-spark_df = spark_df.withColumn('RoundedDuration', F.round(F.col('`_source.duration`'), 0).cast('int'))
-spark_df = spark_df.withColumn('ExternalAssetEmbed', F.lit('filler'))
-spark_df = spark_df.withColumn('IsHidden', F.lit('False'))
-spark_df = spark_df.withColumn('DurationConverted', (F.from_unixtime('RoundedDuration', 'HH:mm:ss')))
-spark_df = spark_df.withColumn('URLAnchorCombined', F.concat(F.col('_id'), F.col('`_source.mentions.anchor`')))
-spark_df = spark_df.withColumn('CreatedOn', F.current_timestamp())
 
 silver_df = spark_df
 
