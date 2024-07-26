@@ -80,7 +80,14 @@ df = unpack(pandas_df)
 
 spark_df = spark.createDataFrame(df)
 
-silver_df = spark_df
+
+
+
+# silver_df = spark_df
+
+# COMMAND ----------
+
+display(spark_df)
 
 # COMMAND ----------
 

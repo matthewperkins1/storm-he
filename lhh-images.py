@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-%pip install elasticsearch
-%pip install azure-storage-blob
+# %pip install elasticsearch
+# %pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -15,25 +15,37 @@ import pyspark.sql.functions as F
 key = dbutils.secrets.get('databricksscope', 'elastic-search-key')
 cloud_id = dbutils.secrets.get('databricksscope', 'elastic-search-cloudid')
 connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
-
-
-# COMMAND ----------
-
-# Retrieve records from Elastic search and convert into Dataframe
-topic_name = 'lhh-images'
-records = helpers.scan(client=connection, index=topic_name, preserve_order=True)
-list_records = list(records)
-raw_spark_df = spark.createDataFrame(list_records)
-pandas_df = pd.DataFrame(list_records)
-
+index = 'lhh-images'
 
 # COMMAND ----------
 
-# Persist bronze table to Delta lake
-raw_spark_df.write \
-    .format('delta') \
-    .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{topic_name}/bronze")
+# Establish connection to ADLS for writing raw json to bronze layer
+account_key = dbutils.secrets.get('databricksscope', 'mount-sas-account-token')
+
+# Configure Blob Storage connection
+blob_connection_string = f"DefaultEndpointsProtocol=https;AccountName=trainingsamp;AccountKey={account_key};EndpointSuffix=core.windows.net"
+blob_container_name = f"training/{index}/bronze"
+blob_name = f"{index}.json"
+
+# Create Blob Service Client
+blob_service_client = BlobServiceClient.from_connection_string(blob_connection_string)
+
+# Create Blob Client
+blob_client = blob_service_client.get_blob_client(container=blob_container_name, blob=blob_name)
+
+# COMMAND ----------
+
+# Retrieve records from Elastic search
+records = list(helpers.scan(client=connection, index=index))
+
+# COMMAND ----------
+
+# Create json records and write bronze layer to ADLS
+# Convert records to JSON string
+json_records = json.dumps(records, indent=4)
+
+# Upload JSON file to Blob Storage
+blob_client.upload_blob(json_records, overwrite=True)
 
 # COMMAND ----------
 
@@ -75,10 +87,17 @@ def unpack(df):
 
 # COMMAND ----------
 
-# Create the silver table by unpacking and enriching the dataframe
+# Read in bronze json to spark DF for processing
+spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+
+# Create the silver layer by unpacking and enriching the dataframe
+pandas_df = spark_df.toPandas()
+
 df = unpack(pandas_df)
 
 spark_df = spark.createDataFrame(df)
+
+# COMMAND ----------
 
 silver_df = spark_df
 
@@ -88,7 +107,7 @@ silver_df = spark_df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{topic_name}/silver")
+    .save(f"/mnt/trainingsamp/training/{index}/silver")
 
 # COMMAND ----------
 
@@ -98,5 +117,4 @@ gold_df = silver_df
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{topic_name}/gold")
-
+    .save(f"/mnt/trainingsamp/training/{index}/gold")
