@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-# %pip install elasticsearch
-# %pip install azure-storage-blob
+%pip install elasticsearch
+%pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -88,30 +88,48 @@ def unpack(df):
 # COMMAND ----------
 
 # Read in bronze json to spark DF for processing
-spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
 # Create the silver layer by unpacking and enriching the dataframe
-pandas_df = spark_df.toPandas()
+pandas_df = df.toPandas()
 
 df = unpack(pandas_df)
 
-spark_df = spark.createDataFrame(df)
+df = spark.createDataFrame(df)
 
 # COMMAND ----------
 
-silver_df = spark_df
+#Dropping columns
+df = df.drop('_ignored', '_source.hierarchy_children', '_source.hierarchy_parents', '_source.in_scope', '_source.scope_note', '_source.view_more_url')
 
 # COMMAND ----------
 
-display(silver_df)
+# Rename columns
+column_rename_dict = {
+    "_id": "Id",
+    "_index": "Index",
+    "_score": "Score",
+    "sort": "Sort",
+    "_source.name": "Title",
+    "_source.kind": "Kind",
+    "_source.active": "Active",
+    "_source.hierarchy_level": "HierarchyLevel",
+    "_source.hierarchy_level_name": "HierarchyLevelName",
+    "_source.description": "Description",
+    "_source.header_image_id": "HeaderImageId",
+    "_source.geometry": "geometry",
+}
+
+df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
 # COMMAND ----------
 
 # write silver table to Delta lake
+silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{index}/silver")
+    .save(f"/mnt/trainingsamp/training/{index}/silver/")
 
 # COMMAND ----------
 
@@ -121,5 +139,4 @@ gold_df = silver_df
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{index}/gold")
-
+    .save(f"/mnt/trainingsamp/training/{index}/gold/")

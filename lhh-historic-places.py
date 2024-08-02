@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-# %pip install elasticsearch
-# %pip install azure-storage-blob
+%pip install elasticsearch
+%pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -15,7 +15,7 @@ import pyspark.sql.functions as F
 key = dbutils.secrets.get('databricksscope', 'elastic-search-key')
 cloud_id = dbutils.secrets.get('databricksscope', 'elastic-search-cloudid')
 connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
-index = 'lhh-area-by-numbers'
+index = 'lhh-historic-places'
 
 # COMMAND ----------
 
@@ -88,35 +88,53 @@ def unpack(df):
 # COMMAND ----------
 
 # Read in bronze json to spark DF for processing
-spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
 # Create the silver layer by unpacking and enriching the dataframe
-pandas_df = spark_df.toPandas()
+pandas_df = df.toPandas()
 
 df = unpack(pandas_df)
 
-spark_df = spark.createDataFrame(df)
+df = spark.createDataFrame(df)
 
 # COMMAND ----------
 
+# Adding new columns and removing others
+df = df.withColumn('ExternalLinkUrl', F.concat(F.lit('https://historicengland.org.uk/listing/the-list/list-entry/'), F.col('_id')))
+df = df.withColumn('ConcatenatedId', F.concat(F.col('_id'), F.col('`_source.area_id`')))
+df = df.drop('_ignored', '_source.display_in_highlights')
 
-spark_df = spark_df.withColumn('date_range_from', 
-                               F.when(F.col('`_source.periods.date_range`').like('%Before%'), None)
-                               .otherwise(F.split(F.col('`_source.periods.date_range`'), ' to ').getItem(0)))
-                               
-spark_df = spark_df.withColumn('date_range_to', 
-                               F.when(F.col('`_source.periods.date_range`').like('%Before%'), F.col('`_source.periods.date_range`'))
-                               .otherwise(F.split(F.col('`_source.periods.date_range`'), ' to ').getItem(1)))
+# COMMAND ----------
 
+# Rename columns
+column_rename_dict = {
+    "_id": "Id",
+    "_index": "Index",
+    "_score": "Score",
+    "sort": "Sort",
+    "_source.name": "Title",
+    "_source.heritage_category": "HeritageCategory",
+    "_source.grade": "Grade",
+    "_source.summary_text": "Description",
+    "_source.image_id": "ThumbnailImageId",
+    "_source.locality": "Locality",
+    "_source.priority": "Priority",
+    "_source.area_id": "area_id",
+    "_source.identifying_location": "identifying_location",
+    "_source.geometry": "geometry",
+}
 
-display(spark_df)
+df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
+# COMMAND ----------
 
-# silver_df = spark_df
+# Change column data type
+df = df.withColumn('Id', df.Id.cast('Integer'))
 
 # COMMAND ----------
 
 # Persist silver table to Delta lake
+silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \
@@ -126,9 +144,7 @@ silver_df.write \
 
 # Persist silver table to Delta lake - aggregations are to be done here when decided
 gold_df = silver_df
-
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
     .save(f"/mnt/trainingsamp/training/{index}/gold")
-

@@ -15,7 +15,7 @@ import pyspark.sql.functions as F
 key = dbutils.secrets.get('databricksscope', 'elastic-search-key')
 cloud_id = dbutils.secrets.get('databricksscope', 'elastic-search-cloudid')
 connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
-index = 'lhh-stories'
+index = 'lhh-area-by-numbers'
 
 # COMMAND ----------
 
@@ -35,7 +35,7 @@ blob_client = blob_service_client.get_blob_client(container=blob_container_name,
 
 # COMMAND ----------
 
-# Retrieve records from Elastic search and convert into Dataframe
+# Retrieve records from Elastic search
 records = list(helpers.scan(client=connection, index=index))
 
 # COMMAND ----------
@@ -90,54 +90,80 @@ def unpack(df):
 # Read in bronze json to spark DF for processing
 df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
-# COMMAND ----------
-
 # Create the silver layer by unpacking and enriching the dataframe
-pdf = df.toPandas()
+pandas_df = df.toPandas()
 
-# Create the silver table by unpacking and enriching the dataframe
-df = unpack(pdf)
+df = unpack(pandas_df)
 
 df = spark.createDataFrame(df)
 
-df = df.withColumn('_source.duration', 
-                               F.when(F.col('`_source.duration`').isin([float('inf'), float('-inf'), None]), 0)
-                               .otherwise(F.col('`_source.duration`')))
-df = df.withColumn('RoundedDuration', F.round(F.col('`_source.duration`'), 0).cast('int'))
-df = df.withColumn('ExternalAssetEmbed', F.lit('filler'))
-df = df.withColumn('IsHidden', F.lit('False'))
-df = df.withColumn('DurationConverted', (F.from_unixtime('RoundedDuration', 'HH:mm:ss')))
-df = df.withColumn('URLAnchorCombined', F.concat(F.col('_id'), F.col('`_source.mentions.anchor`')))
-df = df.withColumn('CreatedOn', F.current_timestamp())
-
 # COMMAND ----------
 
-#Dropping columns
-df = df.drop('_ignored', '_source.mentions._type', 'anchor', '_source.duration', '_source.mentions.anchor')
+# Add two new columns to show data range from and to, using existing column
+df = df.withColumn('date_range_from', 
+                               F.when(F.col('`_source.periods.date_range`').like('%Before%'), None)
+                               .otherwise(F.split(F.col('`_source.periods.date_range`'), ' to ').getItem(0)))
+                               
+df = df.withColumn('date_range_to', 
+                               F.when(F.col('`_source.periods.date_range`').like('%Before%'), F.col('`_source.periods.date_range`'))
+                               .otherwise(F.split(F.col('`_source.periods.date_range`'), ' to ').getItem(1)))
+
 
 # COMMAND ----------
 
 # Rename columns
 column_rename_dict = {
-    "_id": "Id",
-    "_index": "Index",
-    "_score": "Score",
-    "_source._type": "Type",
-    "_source.description": "Description",
-    "_source.url": "ExternalAssetSourceUrl",
-    "_source.image_id": "ThumbnailImageId",
-    "_source.mentions.name": "MentionedLocationText",
-    "_source.featured": "Featured",
-    "_source.duration": "MediaDuration",
-    "sort": "Sort",
-    "_source.mentions.area_id": "AreaId",
-    "_source.title": "Title",
-    "_source.mentions.url": "ExternalLinkUrl",
-    "_source.mentions.anchor": "anchor",
-    "RoundedDuration" : "MediaDuration"
+    "_source.area_id": "AreaName",
+    "_source.periods.name": "PeriodName",
+    "_source.periods.date_range": "PeriodDateRange",
+    "_source.periods.sort": "PeriodSort",
+    "_source.periods.description": "PeriodDescription",
+    "_source.periods.description_source": "PeriodDescription_source",
+    "_source.periods.description_source_url": "PeriodDescription_source_url",
+    "_source.periods.examples.nhle_id": "nhleId",
+    "_source.periods.examples.name": "nhleName",
+    "_source.periods.examples.image_id": "nhleImageId",
+    "_source.periods.examples.priority": "nhlePriority",
+    "_source.periods.examples.summary_text": "nhleSummaryText",
+    "_source.periods.examples.url": "nhleUrl"
 }
 
 df = df.withColumnsRenamed(colsMap=column_rename_dict)
+
+# COMMAND ----------
+
+# select only required columns
+column_names = [
+    "AreaName",
+    "PeriodName",
+    "PeriodDateRange",
+    "PeriodSort",
+    "PeriodDescription",
+    "PeriodDescription_source",
+    "PeriodDescription_source_url",
+    "nhleId",
+    "nhleName",
+    "nhleImageId",
+    "nhlePriority",
+    "nhleSummaryText",
+    "nhleUrl",
+    "date_range_from",
+    "date_range_to"
+]
+
+df = df.select(column_names)
+
+# COMMAND ----------
+
+# Read lhh-areas delta table into a dataframe and prepare for join
+areas_df = spark.read.format('Delta').load(f"/mnt/trainingsamp/training/lhh-areas/gold/")
+areas_df = areas_df.select('Id', 'sort').withColumnRenamed('sort', 'AreaId')
+
+# COMMAND ----------
+
+# join current df with new lhh-areas df
+df = df.join(areas_df, df['AreaName'] == areas_df['Id'], 'leftouter')
+df = df.drop('Id')
 
 # COMMAND ----------
 
@@ -146,7 +172,7 @@ silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{index}/silver")
+    .save(f"/mnt/trainingsamp/training/{index}/silver/")
 
 # COMMAND ----------
 
@@ -155,5 +181,5 @@ gold_df = silver_df
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
-    .save(f"/mnt/trainingsamp/training/{index}/gold")
+    .save(f"/mnt/trainingsamp/training/{index}/gold/")
 

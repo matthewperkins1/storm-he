@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-# %pip install elasticsearch
-# %pip install azure-storage-blob
+%pip install elasticsearch
+%pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -88,22 +88,49 @@ def unpack(df):
 # COMMAND ----------
 
 # Read in bronze json to spark DF for processing
-spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
 # Create the silver layer by unpacking and enriching the dataframe
-pandas_df = spark_df.toPandas()
+pandas_df = df.toPandas()
 
 df = unpack(pandas_df)
 
-spark_df = spark.createDataFrame(df)
+df = spark.createDataFrame(df)
 
 # COMMAND ----------
 
-silver_df = spark_df
+#Dropping columns
+df = df.drop('_ignored', '_source.image_id')
+
+# COMMAND ----------
+
+# Rename columns
+column_rename_dict = {
+    "sort": "sort",
+    "_index": "index",
+    "_id": "id",
+    "_score": "score",
+    "_source.created_date": "created_date",
+    "_source.description": "description",
+    "_source.url": "url",
+    "_source.source": "source",
+    "_source.copyright_statement": "copyright_statement",
+    "_source.find_out_more_url": "find_out_more_url",
+    "_source.sized_url.920x450": "sized_url_920x450",
+    "_source.sized_url.759x569": "sized_url_759x569",
+    "_source.sized_url.373x240": "sized_url_373x240",
+    "_source.sized_url.868x560": "sized_url_868x560",
+    "_source.sized_url.375x250": "sized_url_375x250",
+    "_source.sized_url.700x400": "sized_url_700x400",
+    "_source.sized_url.868x450": "sized_url_868x450"
+}
+
+df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
 # COMMAND ----------
 
 # Persist silver table to Delta lake
+silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \

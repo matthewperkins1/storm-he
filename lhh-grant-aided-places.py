@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-# %pip install elasticsearch
-# %pip install azure-storage-blob
+%pip install elasticsearch
+%pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -88,27 +88,55 @@ def unpack(df):
 # COMMAND ----------
 
 # Read in bronze json to spark DF for processing
-spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
 # Create the silver layer by unpacking and enriching the dataframe
-pandas_df = spark_df.toPandas()
+pandas_df = df.toPandas()
 
 df = unpack(pandas_df)
 
-spark_df = spark.createDataFrame(df)
+df = spark.createDataFrame(df)
 
 # COMMAND ----------
 
-spark_df = spark_df.withColumn('_source.nhle_id', F.col('`_source.nhle_id`').cast('integer'))
-spark_df = spark_df.withColumn('ExternalLinkUrl', F.concat(F.lit("https://historicengland.org.uk/listing/the-list/map-search?clearresults=True&postcode="), F.col('`_source.nhle_id`')))
-spark_df = spark_df.withColumn('isHidden', F.lit('False'))
-spark_df = spark_df.withColumn('ConcatenatedId', F.concat(F.col('_id'), F.col('`_source.area_id`')))
+#Dropping columns
+df = df.drop('_ignored')
 
-silver_df = spark_df
+# COMMAND ----------
+
+# Adding new columns
+df = df.withColumn('_source.nhle_id', F.col('`_source.nhle_id`').cast('integer'))
+df = df.withColumn('ExternalLinkUrl', F.concat(F.lit("https://historicengland.org.uk/listing/the-list/map-search?clearresults=True&postcode="), F.col('`_source.nhle_id`')))
+df = df.withColumn('isHidden', F.lit('False'))
+df = df.withColumn('ConcatenatedId', F.concat(F.col('_id'), F.col('`_source.area_id`')))
+
+# COMMAND ----------
+
+# Rename columns
+column_rename_dict = {
+    "_id": "Id",
+    "_index": "Index",
+    "_score": "Score",
+    "sort": "Sort",
+    "_source.status": "Status",
+    "_source.url": "Url",
+    "_source.nhle_id": "NHLE_UID",
+    "_source.name": "Title",
+    "_source.is_listed": "IsListed",
+    "_source.map_view_url": "ExternalMapLinkUrl",
+    "_source.priority": "Priority",
+    "_source.area_id": "AreaId",
+    "_source.description": "Description",
+    "_source.image_id": "ThumbnailImageId",
+    "_source.geometry": "geometry",
+}
+
+df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
 # COMMAND ----------
 
 # Persist silver table to Delta lake
+silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \

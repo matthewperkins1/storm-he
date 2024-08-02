@@ -1,7 +1,7 @@
 # Databricks notebook source
 # Install libraries
-# %pip install elasticsearch
-# %pip install azure-storage-blob
+%pip install elasticsearch
+%pip install azure-storage-blob
 import pandas as pd
 import numpy as np
 from elasticsearch import Elasticsearch, helpers
@@ -88,28 +88,61 @@ def unpack(df):
 # COMMAND ----------
 
 # Read in bronze json to spark DF for processing
-spark_df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
+df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
 # Create the silver layer by unpacking and enriching the dataframe
-pandas_df = spark_df.toPandas()
+pandas_df = df.toPandas()
 
 df = unpack(pandas_df)
 
-spark_df = spark.createDataFrame(df)
+df = spark.createDataFrame(df)
+
+# COMMAND ----------
+
+#Dropping columns
+df = df.drop('_ignored', '_source.area_id')
 
 # COMMAND ----------
 
 # Extract longitude and latitude using regex and create hashkey column
 regex = r"POINT \((-?\d+\.\d+) (-?\d+\.\d+)\)"
-spark_df = spark_df.withColumn("longitude", F.regexp_extract("`_source.geometry`", regex, 1))
-spark_df = spark_df.withColumn("latitude", F.regexp_extract("`_source.geometry`", regex, 2))
-spark_df = spark_df.withColumn('hashkey', F.sha2(F.col('_id'), 256))
+df = df.withColumn("longitude", F.regexp_extract("`_source.geometry`", regex, 1))
+df = df.withColumn("latitude", F.regexp_extract("`_source.geometry`", regex, 2))
+df = df.withColumn('hashkey', F.sha2(F.col('_id'), 256))
 
-silver_df = spark_df
+# COMMAND ----------
+
+# Rename columns
+column_rename_dict = {
+    "_id": "Id",
+    "_index": "Index",
+    "_score": "Score",
+    "_source._type": "Type",
+    "_source._type_name": "TypeName",
+    "_source.geometry": "Geometry",
+    "_source.name": "Name",
+    "_source.name_alt": "NameAlt",
+    "_source.name_country": "NameCountry",
+    "_source.name_county": "NameCounty",
+    "_source.name_county_1961": "NameCounty1961",
+    "_source.name_county_1991": "NameCounty1991",
+    "_source.name_county_historic": "NameCountyHistoric",
+    "_source.name_district": "NameDistrict",
+    "_source.name_district_1961": "NameDistrict1961",
+    "_source.name_district_1991": "NameDistrict1991",
+    "_source.name_national_park": "NameNationalPark",
+    "_source.name_region": "NameRegion",
+    "_source.place_id": "PlaceId",
+    "sort": "Sort"
+}
+
+
+df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
 # COMMAND ----------
 
 # Persist silver table to Delta lake
+silver_df = df
 silver_df.write \
     .format('delta') \
     .mode('overwrite') \
@@ -119,7 +152,6 @@ silver_df.write \
 
 # Persist silver table to Delta lake - aggregations are to be done here when decided
 gold_df = silver_df
-
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
