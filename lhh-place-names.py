@@ -15,7 +15,7 @@ import pyspark.sql.functions as F
 key = dbutils.secrets.get('databricksscope', 'elastic-search-key')
 cloud_id = dbutils.secrets.get('databricksscope', 'elastic-search-cloudid')
 connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
-index = 'lhh-stories'
+index = 'lhh-place-names'
 
 # COMMAND ----------
 
@@ -35,7 +35,7 @@ blob_client = blob_service_client.get_blob_client(container=blob_container_name,
 
 # COMMAND ----------
 
-# Retrieve records from Elastic search and convert into Dataframe
+# Retrieve records from Elastic search
 records = list(helpers.scan(client=connection, index=index))
 
 # COMMAND ----------
@@ -90,30 +90,25 @@ def unpack(df):
 # Read in bronze json to spark DF for processing
 df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
-# COMMAND ----------
-
 # Create the silver layer by unpacking and enriching the dataframe
-pdf = df.toPandas()
+pandas_df = df.toPandas()
 
-# Create the silver table by unpacking and enriching the dataframe
-df = unpack(pdf)
+df = unpack(pandas_df)
 
 df = spark.createDataFrame(df)
-
-df = df.withColumn('_source.duration', 
-                               F.when(F.col('`_source.duration`').isin([float('inf'), float('-inf'), None]), 0)
-                               .otherwise(F.col('`_source.duration`')))
-df = df.withColumn('RoundedDuration', F.round(F.col('`_source.duration`'), 0).cast('int'))
-df = df.withColumn('ExternalAssetEmbed', F.lit('filler'))
-df = df.withColumn('IsHidden', F.lit('False'))
-df = df.withColumn('DurationConverted', (F.from_unixtime('RoundedDuration', 'HH:mm:ss')))
-df = df.withColumn('URLAnchorCombined', F.concat(F.col('_id'), F.col('`_source.mentions.anchor`')))
-df = df.withColumn('CreatedOn', F.current_timestamp())
 
 # COMMAND ----------
 
 #Dropping columns
-df = df.drop('_ignored', '_source.mentions._type', 'anchor', '_source.duration', '_source.mentions.anchor')
+df = df.drop('_ignored', '_source.area_id')
+
+# COMMAND ----------
+
+# Extract longitude and latitude using regex and create hashkey column
+regex = r"POINT \((-?\d+\.\d+) (-?\d+\.\d+)\)"
+df = df.withColumn("longitude", F.regexp_extract("`_source.geometry`", regex, 1))
+df = df.withColumn("latitude", F.regexp_extract("`_source.geometry`", regex, 2))
+df = df.withColumn('hashkey', F.sha2(F.col('_id'), 256))
 
 # COMMAND ----------
 
@@ -123,19 +118,24 @@ column_rename_dict = {
     "_index": "Index",
     "_score": "Score",
     "_source._type": "Type",
-    "_source.description": "Description",
-    "_source.url": "ExternalAssetSourceUrl",
-    "_source.image_id": "ThumbnailImageId",
-    "_source.mentions.name": "MentionedLocationText",
-    "_source.featured": "Featured",
-    "_source.duration": "MediaDuration",
-    "sort": "Sort",
-    "_source.mentions.area_id": "AreaId",
-    "_source.title": "Title",
-    "_source.mentions.url": "ExternalLinkUrl",
-    "_source.mentions.anchor": "anchor",
-    "RoundedDuration" : "MediaDuration"
+    "_source._type_name": "TypeName",
+    "_source.geometry": "Geometry",
+    "_source.name": "Name",
+    "_source.name_alt": "NameAlt",
+    "_source.name_country": "NameCountry",
+    "_source.name_county": "NameCounty",
+    "_source.name_county_1961": "NameCounty1961",
+    "_source.name_county_1991": "NameCounty1991",
+    "_source.name_county_historic": "NameCountyHistoric",
+    "_source.name_district": "NameDistrict",
+    "_source.name_district_1961": "NameDistrict1961",
+    "_source.name_district_1991": "NameDistrict1991",
+    "_source.name_national_park": "NameNationalPark",
+    "_source.name_region": "NameRegion",
+    "_source.place_id": "PlaceId",
+    "sort": "Sort"
 }
+
 
 df = df.withColumnsRenamed(colsMap=column_rename_dict)
 
@@ -156,4 +156,3 @@ gold_df.write \
     .format('delta') \
     .mode('overwrite') \
     .save(f"/mnt/trainingsamp/training/{index}/gold")
-

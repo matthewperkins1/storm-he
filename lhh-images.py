@@ -15,7 +15,7 @@ import pyspark.sql.functions as F
 key = dbutils.secrets.get('databricksscope', 'elastic-search-key')
 cloud_id = dbutils.secrets.get('databricksscope', 'elastic-search-cloudid')
 connection = Elasticsearch(cloud_id=cloud_id, api_key=key)
-index = 'lhh-stories'
+index = 'lhh-images'
 
 # COMMAND ----------
 
@@ -35,7 +35,7 @@ blob_client = blob_service_client.get_blob_client(container=blob_container_name,
 
 # COMMAND ----------
 
-# Retrieve records from Elastic search and convert into Dataframe
+# Retrieve records from Elastic search
 records = list(helpers.scan(client=connection, index=index))
 
 # COMMAND ----------
@@ -90,51 +90,39 @@ def unpack(df):
 # Read in bronze json to spark DF for processing
 df = spark.read.option("multiline","true").json(f"/mnt/trainingsamp/training/{index}/bronze/{index}.json")
 
-# COMMAND ----------
-
 # Create the silver layer by unpacking and enriching the dataframe
-pdf = df.toPandas()
+pandas_df = df.toPandas()
 
-# Create the silver table by unpacking and enriching the dataframe
-df = unpack(pdf)
+df = unpack(pandas_df)
 
 df = spark.createDataFrame(df)
-
-df = df.withColumn('_source.duration', 
-                               F.when(F.col('`_source.duration`').isin([float('inf'), float('-inf'), None]), 0)
-                               .otherwise(F.col('`_source.duration`')))
-df = df.withColumn('RoundedDuration', F.round(F.col('`_source.duration`'), 0).cast('int'))
-df = df.withColumn('ExternalAssetEmbed', F.lit('filler'))
-df = df.withColumn('IsHidden', F.lit('False'))
-df = df.withColumn('DurationConverted', (F.from_unixtime('RoundedDuration', 'HH:mm:ss')))
-df = df.withColumn('URLAnchorCombined', F.concat(F.col('_id'), F.col('`_source.mentions.anchor`')))
-df = df.withColumn('CreatedOn', F.current_timestamp())
 
 # COMMAND ----------
 
 #Dropping columns
-df = df.drop('_ignored', '_source.mentions._type', 'anchor', '_source.duration', '_source.mentions.anchor')
+df = df.drop('_ignored', '_source.image_id')
 
 # COMMAND ----------
 
 # Rename columns
 column_rename_dict = {
-    "_id": "Id",
-    "_index": "Index",
-    "_score": "Score",
-    "_source._type": "Type",
-    "_source.description": "Description",
-    "_source.url": "ExternalAssetSourceUrl",
-    "_source.image_id": "ThumbnailImageId",
-    "_source.mentions.name": "MentionedLocationText",
-    "_source.featured": "Featured",
-    "_source.duration": "MediaDuration",
-    "sort": "Sort",
-    "_source.mentions.area_id": "AreaId",
-    "_source.title": "Title",
-    "_source.mentions.url": "ExternalLinkUrl",
-    "_source.mentions.anchor": "anchor",
-    "RoundedDuration" : "MediaDuration"
+    "sort": "sort",
+    "_index": "index",
+    "_id": "id",
+    "_score": "score",
+    "_source.created_date": "created_date",
+    "_source.description": "description",
+    "_source.url": "url",
+    "_source.source": "source",
+    "_source.copyright_statement": "copyright_statement",
+    "_source.find_out_more_url": "find_out_more_url",
+    "_source.sized_url.920x450": "sized_url_920x450",
+    "_source.sized_url.759x569": "sized_url_759x569",
+    "_source.sized_url.373x240": "sized_url_373x240",
+    "_source.sized_url.868x560": "sized_url_868x560",
+    "_source.sized_url.375x250": "sized_url_375x250",
+    "_source.sized_url.700x400": "sized_url_700x400",
+    "_source.sized_url.868x450": "sized_url_868x450"
 }
 
 df = df.withColumnsRenamed(colsMap=column_rename_dict)
@@ -152,8 +140,8 @@ silver_df.write \
 
 # Persist silver table to Delta lake - aggregations are to be done here when decided
 gold_df = silver_df
+
 gold_df.write \
     .format('delta') \
     .mode('overwrite') \
     .save(f"/mnt/trainingsamp/training/{index}/gold")
-
